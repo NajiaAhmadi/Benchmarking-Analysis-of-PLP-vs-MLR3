@@ -2,6 +2,7 @@ library("FeatureExtraction")
 library("DatabaseConnector")
 library("PatientLevelPrediction")
 
+# database setup
 Sys.setenv("DATABASECONNECTOR_JAR_FOLDER" = "C:/postgresdriver")
 dbms <- "postgresql"
 user <- 'postgres'
@@ -22,11 +23,14 @@ oracleTempSchema <- NULL
 cohortTable <- 'cohort'
 
 
+# extraction of patient features from the Liu et. al. 2021 that were included in SynPUF dataset
+
 selectedCovs = c(201820,312327,315286,316139,317898,319844,321052,433753,435243,
                  437312,440417,443372,1112807,1309944,1310149,1315865,1322184,
                  1326303,1353256,1361711,1367571,1383815,1383925,4024552,4027663,
                  4185932,4218106,4353741,19017067,43530634,313217)
 
+# general patient feature setting
 covariateSettings <- createCovariateSettings( useDemographicsGender = TRUE,
                                               useConditionEraAnyTimePrior = TRUE,
                                               useObservationAnyTimePrior = TRUE,
@@ -45,7 +49,8 @@ databaseDetails <- createDatabaseDetails(
   cdmVersion = 5
 )
 
-restrictPlpDataSettings <- createRestrictPlpDataSettings()#sampleSize = 1000
+# sample size restriction, if needed. 
+restrictPlpDataSettings <- createRestrictPlpDataSettings() #sampleSize = 1000
 
 plpData <- getPlpData(
   databaseDetails = databaseDetails,
@@ -56,6 +61,7 @@ plpData <- getPlpData(
 savePlpData(plpData, "C:/Users/win10/Documents/ResultsPLP/ischemic_in_af_data")
 plpData <- loadPlpData("C:/Users/win10/Documents/ResultsPLP/ischemic_in_af_data")
 
+# time at risk and observation window defination
 populationSettings <- createStudyPopulationSettings(
   washoutPeriod = 0,
   firstExposureOnly = TRUE,
@@ -68,6 +74,7 @@ populationSettings <- createStudyPopulationSettings(
   includeAllOutcomes = TRUE
 )
 
+# training and test set splitting for model training. 
 splitSettings <- createDefaultSplitSetting(
   trainFraction = 0.75,
   testFraction = 0.25,
@@ -76,23 +83,25 @@ splitSettings <- createDefaultSplitSetting(
   splitSeed = 1234
 )
 
-
-featureEngineeringSettings <- createFeatureEngineeringSettings()
-
+# feature normalisation
 preprocessSettings<- createPreprocessSettings(
   minFraction = 0,
   normalize = T,
   removeRedundancy = T
 )
-setGradient
+
+# model definition (random forest, gradient boosting machines and logistic regression) and the used hyperparameters
 lrForest <- setRandomForest(ntrees = list(500, 750, 1000, 1250, 1500, 2000), 
                             maxDepth = list(17), minSamplesSplit = list(5), minSamplesLeaf = list(10), 
                             mtries = list("sqrt"), maxSamples = list(NULL), classWeight = list("balanced_subsample"), seed = sample(12345))
 lrGradient <- setGradientBoostingMachine(scalePosWeight=40, ntrees = 1000, learnRate = c(0.005, 0.01, 0.1, 0.05, 0.001))
 lrLogiReg <- setLassoLogisticRegression(seed=1234)
 
+# sampling techniques application
 sampleSettings <- createSampleSettings(type = "underSample", numberOutcomestoNonOutcomes = 1/20, sampleSeed=1234)
-#sampleSettings <- createSampleSettings()
+
+
+# running configuration
 
 lrResults <- runPlp(
   plpData = plpData,
@@ -117,6 +126,9 @@ lrResults <- runPlp(
   saveDirectory = file.path("C:/Users/win10/Documents/ResultsPLP", "plpResults")
 )
 
+# model outcome 
 plpResult <- loadPlpResult(file.path("C:/Users/win10/Documents/ResultsPLP","plpResults", "LassoUnderSampling", "plpResult"))
+
+# visualization of the outcome
 viewPlp(plpResult)
 
