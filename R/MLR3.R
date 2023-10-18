@@ -28,14 +28,11 @@ library(PRROC)
 library(boot)
 library("mlr3db")
 #-----------------------------------------------------------------Connection
-ParallelLogger::logInfo("Connecting to DB")
-drv <- dbDriver("PostgreSQL")
-db <- 'ohdsi'
-host_db <- "sv-diz-omop-demo.med.tu-dresden.de"  
-db_port <- '5432'
-db_user <- "ohdsi_admin_user"
-db_password <- "iOF10AcQC5W+ga+kgMC0oFEOScBTvw"
-
+dbname
+host
+db_port
+db_user
+db_password
 
 con <- dbConnect(RPostgres::Postgres(), dbname = db, host=host_db, port=db_port, 
                  user=db_user, password=db_password)
@@ -117,7 +114,7 @@ final_cohort_test = final_cohort%>% head(1000) #%>% select(01, 02,03, 04,05,deat
 #-----------------------------------------------------------------MLR3 TASK
 logInfo("Creating mlr3-task")
 
-task_cadaf = mlr3::as_task_classif(final_cohort_test, target="death_type_concept_id", "cadaf")
+task_cadaf = mlr3::as_task_classif(final_cohort, target="death_type_concept_id", "cadaf")
 
 task_cadaf$positive = "1"
 split = partition(task_cadaf, ratio = 0.75, stratify = TRUE)
@@ -230,11 +227,6 @@ lrElastic = auto_tuner(
 )
 
 #----------------------------------------------------------------Learners and tuning END
- 
-
-# Create an ephemeral in-memory RSQLite database
-con <- dbConnect(RSQLite::SQLite(), dbname = ":memory:")
-
 
 # Function to calculate Brier Score
 calculate_brier_score <- function(predictions) {
@@ -262,22 +254,21 @@ calculate_prc_auc <- function(predictions) {
 }
 
 # Create a list of models
-models <- list(#lrGradient, 
-               lrForest, lrLasso, lrElastic)
-model_names <- c(#"lrGradient", 
-                 "lrForest", "lrLasso", "lrElastic")
+models <- list(lrGradient, lrForest, lrLasso, lrElastic)
+model_names <- c("lrGradient", "lrForest", "lrLasso", "lrElastic")
 
 # Create a list to store results
 results <- list()
 
 # Define a random feature selection method
-fselector = fs("random_search")
+#fselector = fs("random_search")
 
-# Create a temporary directory for the mlr3db database
-db_dir <- tempfile("/Users/ahmadinai/Downloads/")
+file = system.file(file.path("extdata", "spam.parquet"), package = "mlr3db")
+# Create a backend on the file
+backend = as_duckdb_backend(file)
 
-# Initialize a mlr3db backend
-db_backend <- as_sqlite_backend(task_cadaf$backend, file = db_dir)
+# Construct classification task on the constructed backend
+#task = task_cadaf
 
 # Iterate through models
 for (i in seq_along(models)) {
@@ -288,7 +279,7 @@ for (i in seq_along(models)) {
   trained_model <- model$train(task_cadaf, split$train)
   
   # Make predictions
-  predictions <- model$predict_newdata(final_cohort_test[split$test, ])
+  predictions <- model$predict_newdata(final_cohort[split$test, ])
   
   # Calculate Brier Score
   brier_score <- calculate_brier_score(predictions)

@@ -2,15 +2,12 @@ library("FeatureExtraction")
 library("DatabaseConnector")
 library("PatientLevelPrediction")
 
-# database setup
-Sys.setenv("DATABASECONNECTOR_JAR_FOLDER" = "/Users/ahmadinai/Downloads")
-dbms <- 'postgresql'
-user <- "ohdsi_admin_user"
-password <- "iOF10AcQC5W+ga+kgMC0oFEOScBTvw"
-server <- "sv-diz-omop-demo.med.tu-dresden.de/ohdsi"  
-port <- '5432'
 
-
+dbms
+server
+user
+password
+port
 
 
 connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = dbms,
