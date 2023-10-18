@@ -1,6 +1,11 @@
 # Benchmarking-Analysis-of-PLP-vs-MLR3 
 This repo contains the model scripts and the cohort definitions used for a comparison of PLP and mlr3 R-based package using the SynPUF 5% dataset.
 
+#prerequisites
+- to start with the project a Postgresql should be installed on your machine. 
+- 
+
+
 # Configuration
 
 "PLPvsMLR3.Rproj" (and its dependent files, NAMESPACE, and DESCRIPTION) include the required R/R-studio settings for the project and can be directly imported into the R-studio. 

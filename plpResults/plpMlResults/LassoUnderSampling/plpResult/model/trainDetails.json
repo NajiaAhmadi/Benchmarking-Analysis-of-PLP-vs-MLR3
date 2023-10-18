@@ -1,0 +1,33 @@
+{
+  "analysisId": "LassoUnderSampling",
+  "analysisSource": "",
+  "developmentDatabase": "synpuf_cdm",
+  "attrition": {
+    "outcomeId": [4, 4, 4, 4],
+    "description": ["Original cohorts", "Initial plpData cohort or population", "First Exposure", "Removing subjects with no time at risk (if any))"],
+    "targetCount": [22242, 22242, 22242, 22225],
+    "uniquePeople": [22242, 22242, 22242, 22225],
+    "outcomes": [550, 548, 548, 548],
+    "attr_class": "data.frame",
+    "attr_row.names": [1, 2, 3, 4]
+  },
+  "trainingTime": "18.0286300182343 secs",
+  "trainingDate": "2023-10-13",
+  "modelName": "logistic",
+  "finalModelParameters": {
+    "variance": 0.0034,
+    "log_likelihood": -1923.2513
+  },
+  "hyperParamSearch": {
+    "metric": ["AUC", "AUC", "AUC"],
+    "fold": [1, 2, 3],
+    "value": [0.4593, 0.5231, 0.4949],
+    "startingVariance": [0.01, 0.01, 0.01],
+    "lowerLimit": [0.01, 0.01, 0.01],
+    "upperLimit": [20, 20, 20],
+    "tolerance": [2e-06, 2e-06, 2e-06],
+    "attr_class": "data.frame",
+    "attr_row.names": [1, 2, 3]
+  },
+  "developmentDatabaseId": "synpuf_cdm"
+}
