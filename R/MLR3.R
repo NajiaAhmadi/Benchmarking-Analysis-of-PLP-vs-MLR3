@@ -1,17 +1,15 @@
 ##### INFO: This code is designed for machine learning model training and evaluation with a focus 
 # on hyperparameter tuning and resampling techniques, particularly for classification tasks. 
-# It uses the mlr3 package for these tasks.
+# It uses mostly mlr3* package for these tasks.
 
 library("RPostgreSQL")
 library("progressr")
-
 library("mlr3")
 library("mlr3verse")
 library("mlr3learners")
 library("mlr3measures")
 library("mlr3viz")
 library("mlr3tuning")
-
 library("plyr")
 library("dplyr")
 library("dbplyr")
@@ -23,26 +21,29 @@ library("data.table")
 library("ParallelLogger")
 library("doParallel")
 library("foreach")
-
 library(PRROC)
 library(boot)
 library("mlr3db")
+
 #-----------------------------------------------------------------Connection
-dbname
-host
-db_port
-db_user
-db_password
+ParallelLogger::logInfo("Connecting to DB")
+drv <- dbDriver("PostgreSQL")
+db <- 'da_name'
+host_db <- "db_host"  
+db_port <- 'db_port'
+db_user <- "db_user"
+db_password <- "db_passwort"
 
 con <- dbConnect(RPostgres::Postgres(), dbname = db, host=host_db, port=db_port, 
                  user=db_user, password=db_password)
 #-----------------------------------------------------------------Connection END
 
-
 #-----------------------------------------------------------------Preprocess 
 ParallelLogger::logInfo("Creating Cohorts")
 
-cohort <- tbl(con, in_schema("synpuf_cdm", "target_cohort" )) %>% rename("person_id" = "subject_id") %>% filter(cohort_definition_id == 3) %>% select("person_id", "cohort_start_date")
+cohort <- tbl(con, in_schema("synpuf_cdm", "target_cohort" )) %>% 
+  rename("person_id" = "subject_id") %>% 
+  filter(cohort_definition_id == 3) %>% select("person_id", "cohort_start_date")
 condition_era <- tbl(con, in_schema("synpuf_cdm", "condition_era"))
 death <- tbl(con, in_schema("synpuf_cdm", "death"))
 observation <- tbl(con, in_schema("synpuf_cdm", "observation"))
@@ -76,7 +77,8 @@ final_cohort <- cohort %>% left_join(condition_era, by='person_id') %>%
 ParallelLogger::logInfo("Joining Observation Data")
 final_cohort <- cohort %>% left_join(observation, by='person_id') %>% 
   filter(observation_date <= cohort_start_date) %>%
-  select("observation_concept_id", "person_id") %>% collect() %>% gather(variable, value, -(c(person_id))) %>% 
+  select("observation_concept_id", "person_id") %>% collect() %>% 
+  gather(variable, value, -(c(person_id))) %>% 
   mutate(value2 = value)  %>% unite(temp, variable, value2) %>% 
   distinct(.keep_all = TRUE) %>% 
   spread(temp, value) %>% left_join(final_cohort, by="person_id")
@@ -84,7 +86,8 @@ final_cohort <- cohort %>% left_join(observation, by='person_id') %>%
 ParallelLogger::logInfo("Joining Drug Era Data")
 final_cohort <- cohort %>% left_join(drug_era, by='person_id') %>%
   filter(drug_era_start_date <= cohort_start_date) %>%
-  select("drug_concept_id", "person_id") %>% collect() %>% gather(variable, value, -(c(person_id))) %>% 
+  select("drug_concept_id", "person_id") %>% collect() %>% 
+  gather(variable, value, -(c(person_id))) %>% 
   mutate(value2 = value)  %>% unite(temp, variable, value2) %>% 
   distinct(.keep_all = TRUE) %>% 
   spread(temp, value) %>% left_join(final_cohort, by="person_id")  
@@ -107,8 +110,7 @@ logInfo("Converting target column type to factor")
 final_cohort$death_type_concept_id = as.factor(final_cohort$death_type_concept_id)
 gc()
 
-final_cohort_test = final_cohort%>% head(1000) #%>% select(01, 02,03, 04,05,death_type_concept_id)
-
+#final_cohort_test = final_cohort%>% head(1000) #%>% select(01, 02,03, 04,05,death_type_concept_id)
 #-----------------------------------------------------------------PreProcess END
 
 #-----------------------------------------------------------------MLR3 TASK
@@ -121,8 +123,10 @@ split = partition(task_cadaf, ratio = 0.75, stratify = TRUE)
 task_cadaf$set_row_roles(split$test, "test")
 
 lasso = lrn("classif.glmnet", predict_type = "prob")
-gradient = lrn("classif.xgboost", predict_type = "prob", nrounds = 500, early_stopping_rounds = 25, early_stopping_set = "test", eval_metric = "auc")
-forest = lrn("classif.ranger", predict_type = "prob", max.depth = 17, seed = 12345, mtry = as.integer(sqrt(length(task_cadaf$feature_names))))
+gradient = lrn("classif.xgboost", predict_type = "prob", nrounds = 500, 
+               early_stopping_rounds = 25, early_stopping_set = "test", eval_metric = "auc")
+forest = lrn("classif.ranger", predict_type = "prob", max.depth = 17, seed = 12345, 
+             mtry = as.integer(sqrt(length(task_cadaf$feature_names))))
 
 terminator = trm("evals", n_evals = 5)
 fselector = fs("random_search")
@@ -130,37 +134,46 @@ fselector = fs("random_search")
 #-----------------------------------------------------------------MLR3 TASK END
 
 #-----------------------------------------------------------------Hyperspaces
+# Set a random seed for reproducibility
 set.seed(7832)
+
+#Set the logging threshold for mlr3 to "warn"
 lgr::get_logger("mlr3")$set_threshold("warn")
 
 
-### hyper-parameters for tuning
+### Hyper-parameters for tuning ###
+# Define hyperparameter search spaces for each learner
+
+# Hyperparameters for 'lrGradient'
 spGradient = ps(
-  scale_pos_weight = p_dbl(40,40),
-  eta = p_dbl(-4, 0),
+  scale_pos_weight = p_dbl(40,40), 
+  eta = p_dbl(-4, 0), 
   .extra_trafo = function(x, param_set) {
-    x$eta = round(10^(x$eta))
+    x$eta = round(10^(x$eta)) 
     x
   }
 )
 
+# Hyperparameters for 'lrForest'
 spForest = ps(
-  num.trees = p_int(500,2000)
+  num.trees = p_int(500,2000) 
 )
 
+# Hyperparameters for 'lrLasso'
 spLasso = ps(
   s = p_dbl(-12, 12),
-  alpha = p_dbl(1,1),
+  alpha = p_dbl(1,1), 
   .extra_trafo = function(x, param_set) {
     x$s = round(2^(x$s))
     x
   }
 )
 
+# Hyperparameters for 'lrElastic'
 spElastic = ps(
   s = p_dbl(-12, 12),
-  alpha = p_dbl(0,1),
-  .extra_trafo = function(x, param_set) {
+  alpha = p_dbl(0,1), 
+  .extra_trafo = function(x, param_set) { 
     x$s = round(2^(x$s))
     x
   }
@@ -169,11 +182,16 @@ spElastic = ps(
 #-----------------------------------------------------------------Hyperspaces END
 
 #----------------------------------------------------------------Learners and tuning
+
+# Define resampling strategy for inner cross-validation with 3 folds
 inner_cv3 = rsmp("cv", folds = 3)
+# Define the performance measure to optimize (Area under the Precision-Recall Curve)
 measure = msr("classif.prauc")
+# Define a termination criterion for early stopping after 5 evaluations
 terminator2 = trm("evals", n_evals = 5)
 terminator3 =trm("evals", n_evals = 1)
 
+# Define an auto-tuner for gradient model
 gradientAuto = auto_tuner(
   tuner = tnr("random_search"),
   learner = gradient,
@@ -183,6 +201,7 @@ gradientAuto = auto_tuner(
   terminator = terminator2
 )
 
+# Define an auto-tuner for forest model
 forestAuto = auto_tuner(
   tuner = tnr("random_search"),
   learner = forest,
@@ -192,6 +211,7 @@ forestAuto = auto_tuner(
   terminator = terminator2
 )
 
+# Create an AutoFSelector for gradient model
 lrGradient = AutoFSelector$new(
   learner = gradientAuto,
   resampling = rsmp("holdout"),
@@ -200,6 +220,7 @@ lrGradient = AutoFSelector$new(
   fselector = fselector
 )
 
+# Create an AutoFSelector for forest model
 lrForest = AutoFSelector$new(
   learner = forestAuto,
   resampling = rsmp("holdout"),
@@ -207,7 +228,7 @@ lrForest = AutoFSelector$new(
   terminator = terminator3,
   fselector = fselector
 )
-
+# Define an auto-tuner for lasso model
 lrLasso = auto_tuner(
   tuner = tnr("random_search"),
   learner = lasso,
@@ -216,7 +237,7 @@ lrLasso = auto_tuner(
   search_space = spLasso,
   terminator = terminator2
 )
-
+# Define an auto-tuner for elastic net model
 lrElastic = auto_tuner(
   tuner = tnr("random_search"),
   learner = lasso,
@@ -270,10 +291,16 @@ backend = as_duckdb_backend(file)
 # Construct classification task on the constructed backend
 #task = task_cadaf
 
-# Iterate through models
+# Initialize an empty vector to store running times
+running_times <- numeric(length(models))
+
+# Iterate through models 
 for (i in seq_along(models)) {
   model <- models[[i]]
   model_name <- model_names[i]
+  
+  # Record the start time
+  start_time <- Sys.time()
   
   # Train the model
   trained_model <- model$train(task_cadaf, split$train)
@@ -290,14 +317,35 @@ for (i in seq_along(models)) {
   # Calculate PRC AUC
   prc_auc <- calculate_prc_auc(predictions)
   
+  # Record the end time
+  end_time <- Sys.time()
+  
+  # Calculate the running time
+  running_time <- end_time - start_time
+  running_times[i] <- running_time
+  
+  cat(paste("Model:", model_name, "\n"))
+  cat("Running Time:", running_time, "\n")
+  
   results[[model_name]] <- list(
     brier_score = brier_score,
     roc_auc = roc_auc,
     prc_auc = prc_auc
+  
   )
 }
 
-# Calculate 95% confidence intervals using the Basic Bootstrap Percentile Interval
+#### Calculate 95% confidence intervals using the Basic Bootstrap Percentile Interval
+# In the code snippet brier_score = quantile(model_result$brier_score, c(0.025, 0.975)), 
+# the confidence interval is determined by the values c(0.025, 0.975) passed to the quantile 
+# function. These values correspond to the 2.5th percentile and the 97.5th percentile of the 
+# sample data.
+
+# The 2.5th percentile and 97.5th percentile are commonly used to calculate a 
+# 95% confidence interval. In statistics, a 95% confidence interval is a standard choice because 
+# it provides a range that indicates a high level of confidence (95%) that the true population 
+# parameter (in this case, the Brier Score) falls within that range.
+
 conf_intervals <- lapply(results, function(model_result) {
   list(
     brier_score = quantile(model_result$brier_score, c(0.025, 0.975)),
@@ -306,10 +354,14 @@ conf_intervals <- lapply(results, function(model_result) {
   )
 })
 
-# Print the confidence intervals
+# Print the confidence intervals and running times
 for (i in seq_along(model_names)) {
   model_name <- model_names[i]
-  print(paste("Model:", model_name))
-  print("95% Confidence Intervals:")
-  print(conf_intervals[[i]])
+  cat(paste("Model:", model_name, "\n"))
+  cat("95% Confidence Intervals:", "\n")
+  cat("Brier Score: ", conf_intervals[[i]]$brier_score, "\n")
+  cat("ROC AUC: ", conf_intervals[[i]]$roc_auc, "\n")
+  cat("PRC AUC: ", conf_intervals[[i]]$prc_auc, "\n")
+  cat("Running Time:", running_times[i], "\n")
 }
+

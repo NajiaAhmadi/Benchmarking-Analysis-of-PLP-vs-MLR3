@@ -3,11 +3,14 @@ library("DatabaseConnector")
 library("PatientLevelPrediction")
 
 
-dbms
-server
-user
-password
-port
+# database setup
+Sys.setenv("DATABASECONNECTOR_JAR_FOLDER" = "/Users/ahmadinai/Downloads")
+dbms <- 'postgresql'
+user <- "user"
+password <- "password"
+server <- "server address"  
+port <- 'port'
+
 
 
 connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = dbms,
@@ -17,6 +20,7 @@ connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = dbms,
                                                                 port = port)
 
 
+## download the .jar file for postgresql 
 #downloadJdbcDrivers(
 #  dbms <- 'postgresql',
 #  pathToDriver = Sys.getenv("DATABASECONNECTOR_JAR_FOLDER"),
@@ -29,14 +33,6 @@ cdmDatabaseSchema <- 'synpuf_cdm'
 cohortDatabaseSchema <- 'synpuf_cdm'
 oracleTempSchema <- NULL
 cohortTable <- 'target_cohort'
-
-
-# extraction of patient features from the Liu et. al. 2021 that were included in SynPUF dataset - 
-# only to experiment wheather feature selection can improve the outomce. IT DOES NOT!!!
-#selectedCovs = c(201820,312327,315286,316139,317898,319844,321052,433753,435243,
-#                 437312,440417,443372,1112807,1309944,1310149,1315865,1322184,
-#                 1326303,1353256,1361711,1367571,1383815,1383925,4024552,4027663,
-#                 4185932,4218106,4353741,19017067,43530634,313217)
 
 
 # general patient feature setting: Gender, condition from condition era table, observation from observation and 

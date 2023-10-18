@@ -1,10 +1,7 @@
 # Benchmarking-Analysis-of-PLP-vs-MLR3 
-This repo contains the model scripts and the cohort definitions used for a comparison of PLP and mlr3 R-based package using the SynPUF 5% dataset.
-
+This repo contains the model script and the cohort definitions used for a comparison of PLP and mlr3 R-based package using the SynPUF 5% dataset.
 #prerequisites
-- to start with the project a Postgresql should be installed on your machine. 
-- 
-
+- We stored the data in a postgresql database. But any database that supports OMOP CDM can be used to store the SynPUF 5% dataset.
 
 # Configuration
 
@@ -18,7 +15,7 @@ MLR3 version 0.14.1
 
 # PLP package 
 PLP version 6.0.8
-
+ 
 # Package dependencies
 "renv.lock" include the package dependencies that can be imported. 
 
