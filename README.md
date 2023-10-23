@@ -4,8 +4,8 @@ This repo contains the model script and the cohort definitions used for a compar
 # Cohort definition
 Cohort definition was performed using the [ATLAS](https://atlas-demo.ohdsi.org/#/home) platform. The data was imported into a locally running ATLAS and the cohort definition option was used. The "cohort_target.sql" file include the target population definition used in the study. In addition "cohort_outcome_death.sql" file describes our outcome cohort within the target population.
 
-#prerequisites
-- We loaded the target and outcome cohorts data in a postgresql database. But any database format that OMOP CDM support can be used to store the SynPUF 5% dataset.
+# prerequisites
+We loaded the target and outcome cohorts data in a postgresql database. But any database format that OMOP CDM support can be used to store the SynPUF 5% dataset.
 
 # Configuration
 
