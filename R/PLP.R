@@ -16,19 +16,13 @@ Sys.setenv("DATABASECONNECTOR_JAR_FOLDER" = "R/")
 
 source("R/config.R")
 db_info <- paste("user=", db_user, " password=", db_password,
-                 " dbname=", db, " host=", host_db, " port=", db_port, sep = ",")
-
-dbms <- 'postgresql'
-user <- "ohdsi_admin_user"
-password <- "iOF10AcQC5W+ga+kgMC0oFEOScBTvw"
-server <- "sv-diz-omop-demo.med.tu-dresden.de/ohdsi"  
-port <- '5432'
+                 " dbname=", db, " host=", host_db, " port=", db_port, "dbms =", dbms, sep = ",")
 
 connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = dbms,
-                                                                server = server,
-                                                                user = user,
-                                                                password = password,
-                                                                port = port)
+                                                                server = host_db,
+                                                                user = db_user,
+                                                                password = db_password,
+                                                                port = db_port)
 
 
 ## download the .jar file for postgresql 
