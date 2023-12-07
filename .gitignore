@@ -10,3 +10,8 @@ renv
 savePlpData
 R/config.R
 R/postgresql-42.2.18.jar
+.gitignore
+.DS_Store
+.RDataTmp1
+.RDataTmp2
+.RDataTmp3
