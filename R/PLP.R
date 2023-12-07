@@ -2,16 +2,27 @@ library("FeatureExtraction")
 library("DatabaseConnector")
 library("PatientLevelPrediction")
 
+reticulate::install_miniconda()
+configurePython(envname = 'r-reticulate', envtype = 'conda')
+#reticulate::conda_list()
+usethis::edit_r_profile()
+#/Users/ahmadinai/Library/r-miniconda/envs/r-reticulate/bin/python
+
+#usethis::edit_r_profile()
+#Sys.setenv(PATH = paste("/Users/ahmadinai/opt/anaconda3/bin/python", Sys.getenv("PATH"), sep = ";"))
 
 # database setup
-Sys.setenv("DATABASECONNECTOR_JAR_FOLDER" = "/Users/ahmadinai/Downloads")
+Sys.setenv("DATABASECONNECTOR_JAR_FOLDER" = "R/")
+
+source("R/config.R")
+db_info <- paste("user=", db_user, " password=", db_password,
+                 " dbname=", db, " host=", host_db, " port=", db_port, sep = ",")
+
 dbms <- 'postgresql'
-user <- "user"
-password <- "password"
-server <- "server address"  
-port <- 'port'
-
-
+user <- "ohdsi_admin_user"
+password <- "iOF10AcQC5W+ga+kgMC0oFEOScBTvw"
+server <- "sv-diz-omop-demo.med.tu-dresden.de/ohdsi"  
+port <- '5432'
 
 connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = dbms,
                                                                 server = server,
@@ -31,7 +42,7 @@ connectionDetails <- DatabaseConnector::createConnectionDetails(dbms = dbms,
 cdmDatabaseName <- 'ohdsi'
 cdmDatabaseSchema <- 'synpuf_cdm'
 cohortDatabaseSchema <- 'synpuf_cdm'
-oracleTempSchema <- NULL
+tempEmulationSchema <- NULL
 cohortTable <- 'target_cohort'
 
 
@@ -103,9 +114,13 @@ preprocessSettings<- createPreprocessSettings(
 # model definition (random forest, gradient boosting machines and logistic regression) and the used hyperparameters
 lrForest <- setRandomForest(ntrees = list(500, 750, 1000, 1250, 1500, 2000), 
                             maxDepth = list(17), minSamplesSplit = list(5), minSamplesLeaf = list(10), 
-                            mtries = list("sqrt"), maxSamples = list(NULL), classWeight = list("balanced_subsample"), seed = sample(12345))
+                            mtries = list("sqrt"), #maxSamples = list(NULL), 
+                            classWeight = list("balanced_subsample"), 
+                            seed = sample(12345))
 lrGradient <- setGradientBoostingMachine(scalePosWeight=40, ntrees = 1000, learnRate = c(0.005, 0.01, 0.1, 0.05, 0.001))
 lrLogiReg <- setLassoLogisticRegression(seed=1234)
+
+modellist <- list(lrForest,lrLogiReg, lrGradient)
 
 # sampling techniques application
 sampleSettings <- createSampleSettings() #(type = "underSample", numberOutcomestoNonOutcomes = 1/20, sampleSeed=1234)
@@ -125,7 +140,7 @@ lrResults <- runPlp(
   sampleSettings = sampleSettings,
   featureEngineeringSettings = featureEngineeringSettings,
   preprocessSettings = preprocessSettings,
-  modelSettings = lrLogiReg,
+  modelSettings = lrForest,
   logSettings = createLogSettings(),
   executeSettings = createExecuteSettings(
     runSplitData = T,

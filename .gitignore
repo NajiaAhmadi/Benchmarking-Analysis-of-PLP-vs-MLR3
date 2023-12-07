@@ -2,3 +2,11 @@
 .Rhistory
 .RData
 .Ruserdata
+.Rbuildignore
+plp-prot
+plpResult
+renv.lock
+renv
+savePlpData
+R/config.R
+R/postgresql-42.2.18.jar

@@ -7,8 +7,7 @@ library("progressr")
 library("mlr3")
 library("mlr3verse")
 library("mlr3learners")
-library("mlr3measures")
-library("mlr3viz")
+#library("mlr3viz")
 library("mlr3tuning")
 library("plyr")
 library("dplyr")
@@ -24,18 +23,16 @@ library("foreach")
 library(PRROC)
 library(boot)
 library("mlr3db")
+library(pROC)
 
 #-----------------------------------------------------------------Connection
-ParallelLogger::logInfo("Connecting to DB")
-drv <- dbDriver("PostgreSQL")
-db <- 'da_name'
-host_db <- "db_host"  
-db_port <- 'db_port'
-db_user <- "db_user"
-db_password <- "db_passwort"
+# Load configuration from config.R
+source("R/config.R")
+db_info <- paste("user=", db_user, " password=", db_password,
+                           " dbname=", db, " host=", host_db, " port=", db_port, sep = ",")
 
-con <- dbConnect(RPostgres::Postgres(), dbname = db, host=host_db, port=db_port, 
-                 user=db_user, password=db_password)
+con <- dbConnect(RPostgres::Postgres(), dbname = db, host = host_db,
+                 port = db_port, user = db_user, password = db_password)
 #-----------------------------------------------------------------Connection END
 
 #-----------------------------------------------------------------Preprocess 
@@ -248,11 +245,28 @@ lrElastic = auto_tuner(
 )
 
 #----------------------------------------------------------------Learners and tuning END
+#p = as.numeric(as.character(predictions$prob[,1]))
+#t = as.numeric(as.character(predictions$truth))
+#mean((p - t)^2)
 
-# Function to calculate Brier Score
+#calculate_brier_score <- function(predictions) {
+#  actual_outcomes <- as.numeric(predictions$truth)
+#  brier_score <- mean((predictions$prob - actual_outcomes)^2)
+#  return(brier_score)
+#}
+
+
+# Function to calculate Brier Score for binary classification with two probabilities
 calculate_brier_score <- function(predictions) {
-  actual_outcomes <- as.numeric(predictions$truth)
-  brier_score <- mean((predictions$prob - actual_outcomes)^2)
+  # Extract the true outcomes (0 or 1)
+  actual_outcomes <- as.numeric(as.character(predictions$truth))
+  
+  # Extract the predicted probabilities for class 1
+  predicted_probabilities_class_1 <- as.numeric(as.character(predictions$prob[,1]))
+  
+  # Calculate the Brier Score as the mean squared difference between predicted probabilities and actual outcomes
+  brier_score <- mean((predicted_probabilities_class_1 - actual_outcomes)^2)
+  
   return(brier_score)
 }
 
@@ -285,11 +299,9 @@ results <- list()
 #fselector = fs("random_search")
 
 file = system.file(file.path("extdata", "spam.parquet"), package = "mlr3db")
+
 # Create a backend on the file
 backend = as_duckdb_backend(file)
-
-# Construct classification task on the constructed backend
-#task = task_cadaf
 
 # Initialize an empty vector to store running times
 running_times <- numeric(length(models))
@@ -328,40 +340,136 @@ for (i in seq_along(models)) {
   cat("Running Time:", running_time, "\n")
   
   results[[model_name]] <- list(
-    brier_score = brier_score,
+    brier_score = brier_score, 
     roc_auc = roc_auc,
     prc_auc = prc_auc
   
   )
 }
 
-#### Calculate 95% confidence intervals using the Basic Bootstrap Percentile Interval
-# In the code snippet brier_score = quantile(model_result$brier_score, c(0.025, 0.975)), 
-# the confidence interval is determined by the values c(0.025, 0.975) passed to the quantile 
-# function. These values correspond to the 2.5th percentile and the 97.5th percentile of the 
-# sample data.
+# ----------------------------- Calculate 95% confidence intervals
 
-# The 2.5th percentile and 97.5th percentile are commonly used to calculate a 
-# 95% confidence interval. In statistics, a 95% confidence interval is a standard choice because 
-# it provides a range that indicates a high level of confidence (95%) that the true population 
-# parameter (in this case, the Brier Score) falls within that range.
-
-conf_intervals <- lapply(results, function(model_result) {
-  list(
-    brier_score = quantile(model_result$brier_score, c(0.025, 0.975)),
-    roc_auc = quantile(model_result$roc_auc, c(0.025, 0.975)),
-    prc_auc = quantile(model_result$prc_auc, c(0.025, 0.975))
+# ----------------------- Function to calculate 95% CI for ROC AUC
+calculate_roc_auc_ci <- function(model, task, n_bootstrap = 1000) {
+  y_true <- as.numeric(task$truth())
+  
+  # Initialize an empty vector to store ROC AUC values
+  roc_auc_values <- numeric(n_bootstrap)
+  
+  # Perform bootstrapping
+  for (j in 1:n_bootstrap) {
+    # Generate a random sample with replacement
+    indices <- sample(seq_along(y_true), replace = TRUE)
+    
+    # Make predictions
+    predictions <- model$predict_newdata(final_cohort[indices, ])
+    
+    # Calculate ROC AUC
+    roc_auc_values[j] <- calculate_roc_auc(predictions)
+  }
+  
+  # Sort AUC values
+  sorted_auc_values <- sort(roc_auc_values)
+  
+  # Identify confidence interval bounds
+  lower_bound <- sorted_auc_values[round(0.025 * n_bootstrap)]
+  upper_bound <- sorted_auc_values[round(0.975 * n_bootstrap)]
+  
+  # Return results
+  result <- list(
+    lower_bound = lower_bound,
+    upper_bound = upper_bound
   )
-})
+  
+  cat("95% CI for ROC AUC:", "(", lower_bound, ",", upper_bound, ")\n")
+  
+  return(result)
+}
 
-# Print the confidence intervals and running times
+# Example usage for (e.g.,lrGradient) models
+lrGradient_ci <- calculate_roc_auc_ci(lrGradient, task_cadaf)
+lrForest_roc_ci <- calculate_roc_auc_ci(lrForest, task_cadaf)
+lrLasso_roc_ci <- calculate_roc_auc_ci(lrLasso, task_cadaf)
+lrElastic_roc_ci <- calculate_roc_auc_ci(lrElastic, task_cadaf)
+#-------------------------------- Function to calculate 95% CI for PRC AUC
+
+# Function to calculate 95% CI for PRC AUC
+calculate_prc_auc_ci <- function(model, task, n_bootstrap = 1000) {
+  y_true <- as.numeric(task$truth())
+  
+  # Initialize an empty vector to store PRC AUC values
+  prc_auc_values <- numeric(n_bootstrap)
+  
+  # Perform bootstrapping
+  for (j in 1:n_bootstrap) {
+    # Generate a random sample with replacement
+    indices <- sample(seq_along(y_true), replace = TRUE)
+    
+    # Make predictions
+    predictions <- model$predict_newdata(final_cohort[indices, ])
+    
+    # Calculate PRC AUC
+    prc_auc_values[j] <- calculate_prc_auc(predictions)
+  }
+  
+  # Sort AUC values
+  sorted_auc_values <- sort(prc_auc_values)
+  
+  # Identify confidence interval bounds
+  lower_bound <- sorted_auc_values[round(0.025 * n_bootstrap)]
+  upper_bound <- sorted_auc_values[round(0.975 * n_bootstrap)]
+  
+  # Return results
+  result <- list(
+    lower_bound = lower_bound,
+    upper_bound = upper_bound
+  )
+  
+  cat("95% CI for PRC AUC:", "(", lower_bound, ",", upper_bound, ")\n")
+  
+  return(result)
+}
+
+# Example usage for lrGradient model
+lrGradient_prc_ci <- calculate_prc_auc_ci(lrGradient, task_cadaf)
+lrForest_prc_ci <- calculate_prc_auc_ci(lrForest, task_cadaf)
+lrLasso_prc_ci <- calculate_prc_auc_ci(lrLasso, task_cadaf)
+lrElastic_prc_ci <- calculate_roc_auc_ci(lrElastic, task_cadaf)
+
+#-------------------------------- Function to calculate 95% CI for Brier score
+
+
+
+
+
+
+
+#conf_intervals <- lapply(results, function(model_result) {
+#  list(
+#    brier_score = quantile(model_result$brier_score, c(0.025, 0.975)),
+#    roc_auc = quantile(model_result$roc_auc, c(0.025, 0.975)),
+#    prc_auc = quantile(model_result$prc_auc, c(0.025, 0.975))
+#  )
+#})
+
+
+
+
+# -------------------- Print the results with confidence intervals and running times
 for (i in seq_along(model_names)) {
   model_name <- model_names[i]
   cat(paste("Model:", model_name, "\n"))
-  cat("95% Confidence Intervals:", "\n")
-  cat("Brier Score: ", conf_intervals[[i]]$brier_score, "\n")
-  cat("ROC AUC: ", conf_intervals[[i]]$roc_auc, "\n")
-  cat("PRC AUC: ", conf_intervals[[i]]$prc_auc, "\n")
+  cat("Brier Score: ", results[[i]]$brier_score, "\n")
+  #cat("95% Confidence Interval for Brier Score: ", conf_intervals[[i]]$brier_score, "\n")
+  cat("ROC AUC: ", results[[i]]$roc_auc, "\n")
+  #cat("95% Confidence Interval for ROC AUC: ", conf_intervals[[i]]$roc_auc, "\n")
+  cat("PRC AUC: ", results[[i]]$prc_auc, "\n")
+  #cat("95% Confidence Interval for PRC AUC: ", conf_intervals[[i]]$prc_auc, "\n")
   cat("Running Time:", running_times[i], "\n")
 }
+
+# -----------------------------Confidence interval part
+
+  
+
 
