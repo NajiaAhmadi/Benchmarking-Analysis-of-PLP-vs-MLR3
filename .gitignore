@@ -1,3 +1,27 @@
+plpResults/.DS_Store
+plpResults/plpMlResults/.DS_Store
+plpResults/plpMlResults/LassoUnderSampling/.DS_Store
+plpResults/plpMlResults/LassoUnderSampling/plpLog.txt
+plpResults/plpMlResults/LassoUnderSampling/plpResult/model/attributes.json
+plpResults/plpMlResults/LassoUnderSampling/plpResult/model/covariateImportance.csv
+plpResults/plpMlResults/LassoUnderSampling/plpResult/model/model.json
+plpResults/plpMlResults/LassoUnderSampling/plpResult/model/modelDesign.json
+plpResults/plpMlResults/LassoUnderSampling/plpResult/model/preprocessing.json
+plpResults/plpMlResults/LassoUnderSampling/plpResult/model/trainDetails.json
+plpResults/plpMlResults/LassoUnderSampling/plpResult/runPlp.rds
+savePlpData/cohorts.rds
+savePlpData/covariates
+savePlpData/metaData.rds
+savePlpData/outcomes.rds
+savePlpData/timeRef.rds
+R/lrElastic_metrics_summary.csv
+R/lrForest_metrics_summary.csv
+R/lrGradient_metrics_summary.csv
+R/lrLasso_metrics_summary.csv
+R/MLR3 backup.R
+R/PLP copy.R
+plpResults
+.RDataTmp4
 .Rproj.user
 .Rhistory
 .RData

@@ -7,35 +7,60 @@ library("progressr")
 library("mlr3")
 library("mlr3verse")
 library("mlr3learners")
-#library("mlr3viz")
 library("mlr3tuning")
-library("plyr")
 library("dplyr")
 library("dbplyr")
 library("DBI")
 library("glue")
 library("tidyverse")
-library("janitor")
 library("data.table")
 library("ParallelLogger")
 library("doParallel")
 library("foreach")
-library(PRROC)
-library(boot)
-library("mlr3db")
-library(pROC)
+library("PRROC")
+library("boot")
+library("pROC")
+library(furrr)
+library(future)
 
-#-----------------------------------------------------------------Connection
+#library("mlr3db")
+#library("janitor")
+#library("plyr")
+#library("mlr3viz")
+#-----------------------------------------------------------------Connection START
 # Load configuration from config.R
-source("R/config.R")
-db_info <- paste("user=", db_user, " password=", db_password,
-                           " dbname=", db, " host=", host_db, " port=", db_port, sep = ",")
 
-con <- dbConnect(RPostgres::Postgres(), dbname = db, host = host_db,
-                 port = db_port, user = db_user, password = db_password)
+# Check and set the working directory
+if (!file.exists("config.R")) {
+  stop("Error: 'config.R' not found in the current directory.")
+}
+
+# Set the working directory to the location of the script
+# This assumes that both the script and 'config.R' are in the same directory
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+# Now source the 'config.R' file
+source("config.R")
+
+# Database Connection
+tryCatch({
+  ParallelLogger::logInfo("Connecting to the database...")
+  
+  db_info <- paste("user=", db_user, " password=", db_password,
+                   " dbname=", db, " host=", host_db, " port=", db_port, sep = ",")
+  
+  con <- dbConnect(RPostgres::Postgres(), dbname = db, host = host_db,
+                   port = db_port, user = db_user, password = db_password)
+  
+  ParallelLogger::logInfo("Connected to the database successfully.")
+}, error = function(e) {
+  ParallelLogger::logError("Error connecting to the database:", conditionMessage(e))
+  ParallelLogger::logError("Connection details:", db_info)
+})
+
 #-----------------------------------------------------------------Connection END
 
-#-----------------------------------------------------------------Preprocess 
+#-----------------------------------------------------------------Preprocess START 
 ParallelLogger::logInfo("Creating Cohorts")
 
 cohort <- tbl(con, in_schema("synpuf_cdm", "target_cohort" )) %>% 
@@ -107,10 +132,9 @@ logInfo("Converting target column type to factor")
 final_cohort$death_type_concept_id = as.factor(final_cohort$death_type_concept_id)
 gc()
 
-#final_cohort_test = final_cohort%>% head(1000) #%>% select(01, 02,03, 04,05,death_type_concept_id)
-#-----------------------------------------------------------------PreProcess END
+#-----------------------------------------------------------------Preprocess END
 
-#-----------------------------------------------------------------MLR3 TASK
+#-----------------------------------------------------------------mlr3 TASK START
 logInfo("Creating mlr3-task")
 
 task_cadaf = mlr3::as_task_classif(final_cohort, target="death_type_concept_id", "cadaf")
@@ -128,18 +152,14 @@ forest = lrn("classif.ranger", predict_type = "prob", max.depth = 17, seed = 123
 terminator = trm("evals", n_evals = 5)
 fselector = fs("random_search")
 
-#-----------------------------------------------------------------MLR3 TASK END
+#-----------------------------------------------------------------mlr3 TASK END
 
-#-----------------------------------------------------------------Hyperspaces
+#-----------------------------------------------------------------Hyperspaces START
 # Set a random seed for reproducibility
-set.seed(7832)
+set.seed(123)
 
 #Set the logging threshold for mlr3 to "warn"
 lgr::get_logger("mlr3")$set_threshold("warn")
-
-
-### Hyper-parameters for tuning ###
-# Define hyperparameter search spaces for each learner
 
 # Hyperparameters for 'lrGradient'
 spGradient = ps(
@@ -178,7 +198,7 @@ spElastic = ps(
 
 #-----------------------------------------------------------------Hyperspaces END
 
-#----------------------------------------------------------------Learners and tuning
+#----------------------------------------------------------------Learners and tuning START
 
 # Define resampling strategy for inner cross-validation with 3 folds
 inner_cv3 = rsmp("cv", folds = 3)
@@ -213,7 +233,7 @@ lrGradient = AutoFSelector$new(
   learner = gradientAuto,
   resampling = rsmp("holdout"),
   measure = msr("classif.prauc"),
-  terminator = terminator3,
+  terminator = terminator2,
   fselector = fselector
 )
 
@@ -222,7 +242,7 @@ lrForest = AutoFSelector$new(
   learner = forestAuto,
   resampling = rsmp("holdout"),
   measure = msr("classif.prauc"),
-  terminator = terminator3,
+  terminator = terminator2,
   fselector = fselector
 )
 # Define an auto-tuner for lasso model
@@ -245,16 +265,8 @@ lrElastic = auto_tuner(
 )
 
 #----------------------------------------------------------------Learners and tuning END
-#p = as.numeric(as.character(predictions$prob[,1]))
-#t = as.numeric(as.character(predictions$truth))
-#mean((p - t)^2)
 
-#calculate_brier_score <- function(predictions) {
-#  actual_outcomes <- as.numeric(predictions$truth)
-#  brier_score <- mean((predictions$prob - actual_outcomes)^2)
-#  return(brier_score)
-#}
-
+#--------------------------------------------------------------- Task and metrics START 
 
 # Function to calculate Brier Score for binary classification with two probabilities
 calculate_brier_score <- function(predictions) {
@@ -289,187 +301,190 @@ calculate_prc_auc <- function(predictions) {
 }
 
 # Create a list of models
-models <- list(lrGradient, lrForest, lrLasso, lrElastic)
-model_names <- c("lrGradient", "lrForest", "lrLasso", "lrElastic")
+models <- list(lrGradient, 
+               lrForest, lrLasso, lrElastic)
+model_names <- c("lrGradient", 
+                 "lrForest", "lrLasso", "lrElastic")
 
-# Create a list to store results
-results <- list()
-
-# Define a random feature selection method
-#fselector = fs("random_search")
-
-file = system.file(file.path("extdata", "spam.parquet"), package = "mlr3db")
-
-# Create a backend on the file
-backend = as_duckdb_backend(file)
-
-# Initialize an empty vector to store running times
-running_times <- numeric(length(models))
-
-# Iterate through models 
-for (i in seq_along(models)) {
-  model <- models[[i]]
-  model_name <- model_names[i]
-  
-  # Record the start time
+# Function to train and evaluate a model
+train_and_evaluate <- function(model, model_name, task, split, final_cohort) {
   start_time <- Sys.time()
   
   # Train the model
-  trained_model <- model$train(task_cadaf, split$train)
+  trained_model <- model$train(task, split$train)
   
   # Make predictions
   predictions <- model$predict_newdata(final_cohort[split$test, ])
   
-  # Calculate Brier Score
+  # Calculate evaluation metrics
   brier_score <- calculate_brier_score(predictions)
-  
-  # Calculate ROC AUC
   roc_auc <- calculate_roc_auc(predictions)
-  
-  # Calculate PRC AUC
   prc_auc <- calculate_prc_auc(predictions)
   
-  # Record the end time
   end_time <- Sys.time()
-  
-  # Calculate the running time
   running_time <- end_time - start_time
-  running_times[i] <- running_time
   
   cat(paste("Model:", model_name, "\n"))
   cat("Running Time:", running_time, "\n")
   
-  results[[model_name]] <- list(
+  return(list(
     brier_score = brier_score, 
     roc_auc = roc_auc,
-    prc_auc = prc_auc
-  
-  )
+    prc_auc = prc_auc,
+    running_time = running_time
+  ))
 }
 
-# ----------------------------- Calculate 95% confidence intervals
+# Train and evaluate models
+results <- list()
 
-# ----------------------- Function to calculate 95% CI for ROC AUC
-calculate_roc_auc_ci <- function(model, task, n_bootstrap = 1000) {
-  y_true <- as.numeric(task$truth())
+for (i in seq_along(models)) {
+  model <- models[[i]]
+  model_name <- model_names[i]
   
-  # Initialize an empty vector to store ROC AUC values
-  roc_auc_values <- numeric(n_bootstrap)
-  
-  # Perform bootstrapping
-  for (j in 1:n_bootstrap) {
-    # Generate a random sample with replacement
-    indices <- sample(seq_along(y_true), replace = TRUE)
-    
-    # Make predictions
-    predictions <- model$predict_newdata(final_cohort[indices, ])
-    
-    # Calculate ROC AUC
-    roc_auc_values[j] <- calculate_roc_auc(predictions)
-  }
-  
-  # Sort AUC values
-  sorted_auc_values <- sort(roc_auc_values)
-  
-  # Identify confidence interval bounds
-  lower_bound <- sorted_auc_values[round(0.025 * n_bootstrap)]
-  upper_bound <- sorted_auc_values[round(0.975 * n_bootstrap)]
-  
-  # Return results
-  result <- list(
-    lower_bound = lower_bound,
-    upper_bound = upper_bound
-  )
-  
-  cat("95% CI for ROC AUC:", "(", lower_bound, ",", upper_bound, ")\n")
-  
-  return(result)
-}
+  results[[model_name]] <- train_and_evaluate(model, model_name, task_cadaf, split, final_cohort)
+} 
 
-# Example usage for (e.g.,lrGradient) models
-lrGradient_ci <- calculate_roc_auc_ci(lrGradient, task_cadaf)
-lrForest_roc_ci <- calculate_roc_auc_ci(lrForest, task_cadaf)
-lrLasso_roc_ci <- calculate_roc_auc_ci(lrLasso, task_cadaf)
-lrElastic_roc_ci <- calculate_roc_auc_ci(lrElastic, task_cadaf)
-#-------------------------------- Function to calculate 95% CI for PRC AUC
+results_model_train_test <- results
+#results_model_train_test_lrGradient <-results_model_train_test
+#results_model_train_test_otherModels <- results
 
-# Function to calculate 95% CI for PRC AUC
-calculate_prc_auc_ci <- function(model, task, n_bootstrap = 1000) {
-  y_true <- as.numeric(task$truth())
-  
-  # Initialize an empty vector to store PRC AUC values
-  prc_auc_values <- numeric(n_bootstrap)
-  
-  # Perform bootstrapping
-  for (j in 1:n_bootstrap) {
-    # Generate a random sample with replacement
-    indices <- sample(seq_along(y_true), replace = TRUE)
-    
-    # Make predictions
-    predictions <- model$predict_newdata(final_cohort[indices, ])
-    
-    # Calculate PRC AUC
-    prc_auc_values[j] <- calculate_prc_auc(predictions)
-  }
-  
-  # Sort AUC values
-  sorted_auc_values <- sort(prc_auc_values)
-  
-  # Identify confidence interval bounds
-  lower_bound <- sorted_auc_values[round(0.025 * n_bootstrap)]
-  upper_bound <- sorted_auc_values[round(0.975 * n_bootstrap)]
-  
-  # Return results
-  result <- list(
-    lower_bound = lower_bound,
-    upper_bound = upper_bound
-  )
-  
-  cat("95% CI for PRC AUC:", "(", lower_bound, ",", upper_bound, ")\n")
-  
-  return(result)
-}
+#results_all_models <- c(results_model_train_test_lrGradient,results_model_train_test_otherModels)
 
-# Example usage for lrGradient model
-lrGradient_prc_ci <- calculate_prc_auc_ci(lrGradient, task_cadaf)
-lrForest_prc_ci <- calculate_prc_auc_ci(lrForest, task_cadaf)
-lrLasso_prc_ci <- calculate_prc_auc_ci(lrLasso, task_cadaf)
-lrElastic_prc_ci <- calculate_roc_auc_ci(lrElastic, task_cadaf)
-
-#-------------------------------- Function to calculate 95% CI for Brier score
-
-
-
-
-
-
-
-#conf_intervals <- lapply(results, function(model_result) {
-#  list(
-#    brier_score = quantile(model_result$brier_score, c(0.025, 0.975)),
-#    roc_auc = quantile(model_result$roc_auc, c(0.025, 0.975)),
-#    prc_auc = quantile(model_result$prc_auc, c(0.025, 0.975))
-#  )
-#})
-
-
-
-
-# -------------------- Print the results with confidence intervals and running times
+# Print
 for (i in seq_along(model_names)) {
   model_name <- model_names[i]
   cat(paste("Model:", model_name, "\n"))
-  cat("Brier Score: ", results[[i]]$brier_score, "\n")
-  #cat("95% Confidence Interval for Brier Score: ", conf_intervals[[i]]$brier_score, "\n")
-  cat("ROC AUC: ", results[[i]]$roc_auc, "\n")
-  #cat("95% Confidence Interval for ROC AUC: ", conf_intervals[[i]]$roc_auc, "\n")
-  cat("PRC AUC: ", results[[i]]$prc_auc, "\n")
-  #cat("95% Confidence Interval for PRC AUC: ", conf_intervals[[i]]$prc_auc, "\n")
-  cat("Running Time:", running_times[i], "\n")
+  cat("Brier Score: ", results_model_train_test[[model_name]]$brier_score, "\n")
+  cat("ROC AUC: ", results_model_train_test[[model_name]]$roc_auc, "\n")
+  cat("PRC AUC: ", results_model_train_test[[model_name]]$prc_auc, "\n")
+  cat("Running Time:", results_model_train_test[[model_name]]$running_time, "\n")
 }
 
-# -----------------------------Confidence interval part
+# Set the maximum size for globals
+options(future.globals.maxSize = Inf)
 
+# Set the number of parallel workers
+#plan(future::multisession, workers = 4)  # Adjust the number of workers based on your system
+
+plan(list(
+  tweak(future::multisession, workers = availableCores() %/% 4),
+  tweak(future::multisession, workers = 4)
+))
+
+### future_map_dbl is a function for parallel computation. It applies a function (~ { ... }) 
+### to each element in the sequence 1:n_bootstrap and returns a double vector.
+#options(future.rng.onMisuse = "ignore")
+
+calculate_metric_dist <- function(model, task, final_cohort, metric_function, n_bootstrap = 10, seed = NULL) {
+  set.seed(seed)  # This seed is local to the function
+  metric_values <- future_map_dbl(1:n_bootstrap, ~ {
+    indices <- sample(seq_along(as.numeric(task$truth())), replace = TRUE)
+    predictions <- model$predict_newdata(final_cohort[indices, ])
+    metric_function(predictions)
+  })
+  return(metric_values)
+}
+
+
+#brier_score_result <- calculate_metric_dist(lrElastic, task_cadaf, final_cohort, calculate_brier_score, seed = 123)
+#numeric_values <- unlist(brier_score_result)
+#standard_deviation = sd(numeric_values)
+#xbar = mean(as.numeric(numeric_values)) # mean of the score ditribution (mean is also the AUC value itself)
+
+#margin = qt(0.975, df = n_bootstrap-1)*standard_deviation/sqrt(n_bootstrap)
+
+#upperinterval= xbar + margin
+#lowerinterval= xbar - margin
+
+calculate_summary_statistics <- function(metric_result) {
+  numeric_values <- unlist(metric_result)
+  n_bootstrap <- length(numeric_values)
   
+  xbar <- mean(as.numeric(numeric_values))
+  standard_deviation <- sd(numeric_values)
+  
+  margin <- qt(0.975, df = n_bootstrap - 1) * standard_deviation / sqrt(n_bootstrap)
+  
+  upper_interval <- xbar + margin
+  lower_interval <- xbar - margin
+  
+  return(list(
+    xbar = xbar,
+    standard_deviation = standard_deviation,
+    lower_interval = lower_interval,
+    upper_interval = upper_interval
+  ))
+}
+
+calculate_metrics_summary <- function(model, task, final_cohort, seed = NULL) {
+  brier_score_result <- calculate_metric_dist(model, task, final_cohort, calculate_brier_score, n_bootstrap = 10, seed = seed)
+  roc_auc_result <- calculate_metric_dist(model, task, final_cohort, calculate_roc_auc, n_bootstrap = 10, seed = seed)
+  prc_auc_result <- calculate_metric_dist(model, task, final_cohort, calculate_prc_auc, n_bootstrap = 10, seed = seed)
+  
+  brier_info <- calculate_summary_statistics(brier_score_result)
+  roc_info <- calculate_summary_statistics(roc_auc_result)
+  prc_info <- calculate_summary_statistics(prc_auc_result)
+  
+  metric_values <- list(
+    brier = brier_score_result,
+    roc = roc_auc_result,
+    prc = prc_auc_result
+  )
+  
+  return(list(
+    brier_summary = brier_info,
+    roc_summary = roc_info,
+    prc_summary = prc_info,
+    metric_values = metric_values,
+    metric_info = list(
+      brier = brier_info,
+      roc = roc_info,
+      prc = prc_info
+    )
+  ))
+}
+
+
+# call the function for each model
+lrGradient_metrics_summary <- calculate_metrics_summary(lrGradient, task_cadaf, final_cohort, seed = 123)
+lrForest_metrics_summary <- calculate_metrics_summary(lrForest, task_cadaf, final_cohort, seed = 123)
+lrLasso_metrics_summary <- calculate_metrics_summary(lrLasso, task_cadaf, final_cohort, seed = 123)
+lrElastic_metrics_summary <- calculate_metrics_summary(lrElastic, task_cadaf, final_cohort, seed = 123)
+
+
+# save them in my computer 
+write.csv(lrGradient_metrics_summary, "lrGradient_metrics_summary.csv", row.names = FALSE)
+write.csv(lrForest_metrics_summary, "lrForest_metrics_summary.csv", row.names = FALSE)
+write.csv(lrLasso_metrics_summary, "lrLasso_metrics_summary.csv", row.names = FALSE)
+write.csv(lrElastic_metrics_summary, "lrElastic_metrics_summary.csv", row.names = FALSE)
+
+# Accessing metrics:
+print_metric_summary <- function(metric_summary) {
+  metric_names <- c("brier", "roc", "prc")
+  
+  for (metric_name in metric_names) {
+    cat("Metric:", tolower(metric_name), "\n")
+    cat("xbar:", metric_summary[[paste0(metric_name, "_summary")]]$xbar, "\n")
+    cat("Lower Interval:", metric_summary[[paste0(metric_name, "_summary")]]$lower_interval, "\n")
+    cat("Upper Interval:", metric_summary[[paste0(metric_name, "_summary")]]$upper_interval, "\n\n")
+  }
+}
+
+# Example usage:
+cat("Model: ","Gradient Boosting Machines")
+print_metric_summary(lrGradient_metrics_summary)
+cat("Model: ","Random Forest")
+print_metric_summary(lrForest_metrics_summary)
+cat("Model: ","Lasso")
+print_metric_summary(lrLasso_metrics_summary)
+cat("Model: ","Elastic")
+print_metric_summary(lrElastic_metrics_summary)
+
+# Stop parallel processing
+plan(sequential)
+
+#--------------------------------------------------------------- Task and metrics END 
+
 
 
